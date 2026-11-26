@@ -139,6 +139,12 @@
 // ---------------------------------------------------------------
 // Config / connection
 // ---------------------------------------------------------------
+// Fill these in with your Supabase project's own URL and anon public key
+// (Project Settings -> API) so the app connects automatically for everyone,
+// on any device or browser, with no "Connect to Supabase" prompt.
+const DEFAULT_SUPABASE_URL = "https://wfimsnbzopshshahdqke.supabase.co";   // e.g. "https://xxxxxxxxxxxx.supabase.co"
+const DEFAULT_SUPABASE_KEY = "sb_publishable_ifzT3whOJV2cS5UnBf6mGQ_jB1tyI2x";   // e.g. "eyJhbGciOi..."
+
 let sb = null;
 let STAFF = [], MATERIALS = [], MODELS = [], STOCK = [];
 
@@ -166,8 +172,8 @@ function saveConfig(){
 }
 
 async function init(){
-  const url = localStorage.getItem('sb_url');
-  const key = localStorage.getItem('sb_key');
+  const url = localStorage.getItem('sb_url') || DEFAULT_SUPABASE_URL;
+  const key = localStorage.getItem('sb_key') || DEFAULT_SUPABASE_KEY;
   if(!url || !key){ showConfig(); return; }
   sb = window.supabase.createClient(url, key);
   document.getElementById('configScreen').style.display='none';
