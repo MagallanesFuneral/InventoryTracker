@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Magallanes Casket Production &amp; Inventory</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --border:#2a2f3a;
+    --text:#e8eaed; --muted:#9aa3b2; --accent:#c9a24a; --accent2:#8f7430;
+    --danger:#e2574c; --ok:#4caf7d; --warn:#e2a23b;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+    background:var(--bg); color:var(--text); min-height:100vh;
+  }
+  header{
+    background:linear-gradient(135deg,#1a1d24,#14161b);
+    border-bottom:1px solid var(--border);
+    padding:18px 24px; display:flex; align-items:center; justify-content:space-between;
+    flex-wrap:wrap; gap:10px;
+  }
+  header h1{font-size:1.25rem; margin:0; letter-spacing:.3px;}
+  header h1 span{color:var(--accent);}
+  #connStatus{font-size:.78rem; color:var(--muted);}
+  #connStatus.ok{color:var(--ok);}
+  #connStatus.bad{color:var(--danger);}
+  nav{
+    display:flex; gap:6px; padding:10px 24px; background:var(--panel);
+    border-bottom:1px solid var(--border); flex-wrap:wrap; position:sticky; top:0; z-index:10;
+  }
+  nav button{
+    background:transparent; border:1px solid transparent; color:var(--muted);
+    padding:8px 14px; border-radius:var(--radius); cursor:pointer; font-size:.88rem;
+    transition:.15s;
+  }
+  nav button:hover{color:var(--text); background:var(--panel2);}
+  nav button.active{color:#111; background:var(--accent); font-weight:600;}
+  main{padding:22px 24px 60px; max-width:1200px; margin:0 auto;}
+  .card{
+    background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+    padding:18px 20px; margin-bottom:18px;
+  }
+  .card h2{margin:0 0 14px; font-size:1.05rem; display:flex; align-items:center; gap:8px;}
+  .grid{display:grid; gap:14px;}
+  .grid.cols-4{grid-template-columns:repeat(4,1fr);}
+  .grid.cols-3{grid-template-columns:repeat(3,1fr);}
+  .grid.cols-2{grid-template-columns:repeat(2,1fr);}
+  @media(max-width:900px){.grid.cols-4,.grid.cols-3,.grid.cols-2{grid-template-columns:1fr;}}
+  .stat{
+    background:var(--panel2); border:1px solid var(--border); border-radius:var(--radius);
+    padding:14px 16px;
+  }
+  .stat .label{color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.5px;}
+  .stat .value{font-size:1.6rem; font-weight:700; margin-top:4px;}
+  .stat.low .value{color:var(--danger);}
+  table{width:100%; border-collapse:collapse; font-size:.9rem;}
+  th,td{text-align:left; padding:9px 10px; border-bottom:1px solid var(--border);}
+  th{color:var(--muted); font-weight:600; font-size:.78rem; text-transform:uppercase; letter-spacing:.4px;}
+  tr:hover td{background:rgba(255,255,255,0.02);}
+  .pill{padding:2px 9px; border-radius:999px; font-size:.75rem; font-weight:600;}
+  .pill.ok{background:rgba(76,175,125,.15); color:var(--ok);}
+  .pill.warn{background:rgba(226,162,59,.15); color:var(--warn);}
+  .pill.danger{background:rgba(226,87,76,.15); color:var(--danger);}
+  label{display:block; font-size:.78rem; color:var(--muted); margin:10px 0 4px;}
+  input,select,textarea{
+    width:100%; padding:9px 10px; border-radius:8px; border:1px solid var(--border);
+    background:var(--panel2); color:var(--text); font-size:.9rem; font-family:inherit;
+  }
+  input:focus,select:focus,textarea:focus{outline:1px solid var(--accent);}
+  button.btn{
+    background:var(--accent); color:#17191f; border:none; padding:10px 18px;
+    border-radius:8px; font-weight:600; cursor:pointer; font-size:.88rem; margin-top:14px;
+  }
+  button.btn:hover{background:var(--accent2); color:#fff;}
+  button.btn.secondary{background:var(--panel2); color:var(--text); border:1px solid var(--border);}
+  button.btn.danger{background:var(--danger); color:#fff;}
+  button.small{padding:5px 10px; font-size:.78rem; border-radius:6px; margin:0;}
+  .line-row{
+    display:grid; grid-template-columns:2fr 1fr 1fr auto; gap:8px; align-items:end; margin-bottom:8px;
+  }
+  .muted{color:var(--muted); font-size:.85rem;}
+  .hint{font-size:.78rem; color:var(--muted); margin-top:4px;}
+  .toast{
+    position:fixed; bottom:20px; right:20px; background:var(--panel2); border:1px solid var(--border);
+    padding:12px 18px; border-radius:8px; color:var(--text); font-size:.88rem; z-index:999;
+    box-shadow:0 4px 18px rgba(0,0,0,.4); display:none;
+  }
+  .toast.show{display:block;}
+  .toast.ok{border-color:var(--ok);}
+  .toast.err{border-color:var(--danger);}
+  .empty{color:var(--muted); font-size:.85rem; padding:14px 0; text-align:center;}
+  .flex{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+  .flex.between{justify-content:space-between;}
+  .config-box{max-width:520px; margin:60px auto;}
+  .subtle-link{color:var(--accent); cursor:pointer; font-size:.82rem; text-decoration:underline;}
+  .tag-cat{color:var(--muted); font-size:.78rem;}
+</style>
+</head>
+<body>
+
+<div id="toast" class="toast"></div>
+
+<div id="configScreen" class="config-box card" style="display:none;">
+  <h2>Connect to Supabase</h2>
+  <p class="muted">Enter your Supabase project URL and anon public key (Project Settings → API). These are saved only in this browser.</p>
+  <label>Supabase URL</label>
+  <input id="cfgUrl" placeholder="https://xxxx.supabase.co" />
+  <label>Anon public key</label>
+  <input id="cfgKey" placeholder="eyJhbGciOi..." />
+  <button class="btn" onclick="saveConfig()">Connect</button>
+  <p class="hint">Run schema.sql in the Supabase SQL editor first if you haven't already.</p>
+</div>
+
+<div id="app" style="display:none;">
+  <header>
+    <h1>Magallanes <span>Casket Production &amp; Inventory</span></h1>
+    <div class="flex">
+      <span id="connStatus">connecting…</span>
+      <span class="subtle-link" onclick="showConfig()">reconnect</span>
+    </div>
+  </header>
+  <nav id="tabs">
+    <button data-tab="dashboard" class="active">Dashboard</button>
+    <button data-tab="production">Log Production</button>
+    <button data-tab="shipments">Log Shipment</button>
+    <button data-tab="materials">Materials</button>
+    <button data-tab="models">Casket Models</button>
+    <button data-tab="staff">Staff</button>
+    <button data-tab="history">History</button>
+  </nav>
+  <main id="main"></main>
+</div>
+
+<script>
+// ---------------------------------------------------------------
+// Config / connection
+// ---------------------------------------------------------------
+let supabase = null;
+let STAFF = [], MATERIALS = [], MODELS = [], STOCK = [];
+
+function toast(msg, kind){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast show ' + (kind||'');
+  setTimeout(()=>t.classList.remove('show'), 3200);
+}
+
+function showConfig(){
+  document.getElementById('configScreen').style.display='block';
+  document.getElementById('app').style.display='none';
+  const url = localStorage.getItem('sb_url')||''; const key = localStorage.getItem('sb_key')||'';
+  document.getElementById('cfgUrl').value = url;
+  document.getElementById('cfgKey').value = key;
+}
+
+function saveConfig(){
+  const url = document.getElementById('cfgUrl').value.trim();
+  const key = document.getElementById('cfgKey').value.trim();
+  if(!url || !key){ toast('Enter both fields', 'err'); return; }
+  localStorage.setItem('sb_url', url);
+  localStorage.setItem('sb_key', key);
+  init();
+}
+
+async function init(){
+  const url = localStorage.getItem('sb_url');
+  const key = localStorage.getItem('sb_key');
+  if(!url || !key){ showConfig(); return; }
+  supabase = window.supabase.createClient(url, key);
+  document.getElementById('configScreen').style.display='none';
+  document.getElementById('app').style.display='block';
+  const status = document.getElementById('connStatus');
+  try{
+    const { error } = await supabase.from('materials').select('id').limit(1);
+    if(error) throw error;
+    status.textContent = 'connected'; status.className='ok';
+  }catch(e){
+    status.textContent = 'connection error: ' + e.message; status.className='bad';
+    toast('Could not reach Supabase. Check URL/key and that schema.sql has been run.', 'err');
+    return;
+  }
+  await loadAll();
+  render('dashboard');
+}
+
+async function loadAll(){
+  const [s, m, mo, st] = await Promise.all([
+    supabase.from('staff').select('*').eq('active', true).order('name'),
+    supabase.from('materials').select('*').eq('active', true).order('name'),
+    supabase.from('casket_models').select('*').eq('active', true).order('name'),
+    supabase.from('material_stock').select('*').order('name'),
+  ]);
+  STAFF = s.data || [];
+  MATERIALS = m.data || [];
+  MODELS = mo.data || [];
+  STOCK = st.data || [];
+}
+
+// ---------------------------------------------------------------
+// Nav
+// ---------------------------------------------------------------
+document.getElementById('tabs').addEventListener('click', (e)=>{
+  if(e.target.tagName !== 'BUTTON') return;
+  document.querySelectorAll('#tabs button').forEach(b=>b.classList.remove('active'));
+  e.target.classList.add('active');
+  render(e.target.dataset.tab);
+});
+
+async function render(tab){
+  const main = document.getElementById('main');
+  main.innerHTML = '<div class="empty">Loading…</div>';
+  await loadAll();
+  if(tab==='dashboard') return renderDashboard();
+  if(tab==='production') return renderProduction();
+  if(tab==='shipments') return renderShipments();
+  if(tab==='materials') return renderMaterials();
+  if(tab==='models') return renderModels();
+  if(tab==='staff') return renderStaff();
+  if(tab==='history') return renderHistory();
+}
+
+function fmt(n){ return Number(n).toLocaleString(undefined,{maximumFractionDigits:2}); }
+
+// ---------------------------------------------------------------
+// Dashboard
+// ---------------------------------------------------------------
+async function renderDashboard(){
+  const main = document.getElementById('main');
+  const lowStock = STOCK.filter(s => s.reorder_threshold && Number(s.current_stock) <= Number(s.reorder_threshold));
+
+  const { data: runs } = await supabase.from('production_runs').select('quantity_made, completed_at, status');
+  const completed = (runs||[]).filter(r => r.status === 'completed');
+  const totalMade = completed.reduce((a,r)=>a+Number(r.quantity_made),0);
+  const last30 = completed.filter(r => r.completed_at && (Date.now() - new Date(r.completed_at).getTime()) < 30*86400000)
+                           .reduce((a,r)=>a+Number(r.quantity_made),0);
+  const openCount = (runs||[]).filter(r => r.status === 'in_progress').length;
+
+  main.innerHTML = `
+    <div class="grid cols-4">
+      <div class="stat"><div class="label">Materials tracked</div><div class="value">${MATERIALS.length}</div></div>
+      <div class="stat ${lowStock.length?'low':''}"><div class="label">Low stock alerts</div><div class="value">${lowStock.length}</div></div>
+      <div class="stat"><div class="label">Total caskets made</div><div class="value">${fmt(totalMade)}</div></div>
+      <div class="stat"><div class="label">Made (last 30 days)</div><div class="value">${fmt(last30)}</div></div>
+      <div class="stat"><div class="label">Open batches in progress</div><div class="value">${openCount}</div></div>
+    </div>
+
+    ${lowStock.length ? `
+    <div class="card">
+      <h2>⚠ Low Stock</h2>
+      <table><thead><tr><th>Material</th><th>Current</th><th>Reorder at</th></tr></thead>
+      <tbody>${lowStock.map(s=>`<tr><td>${s.name}</td><td>${fmt(s.current_stock)} ${s.unit}</td><td>${fmt(s.reorder_threshold)} ${s.unit}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>` : ''}
+
+    <div class="card">
+      <h2>Current Stock</h2>
+      <table>
+        <thead><tr><th>Material</th><th>Category</th><th>Stock</th><th>Status</th></tr></thead>
+        <tbody>
+        ${STOCK.length ? STOCK.map(s=>{
+          let pill = 'ok', label='OK';
+          if(s.reorder_threshold){
+            if(Number(s.current_stock) <= 0){ pill='danger'; label='OUT'; }
+            else if(Number(s.current_stock) <= Number(s.reorder_threshold)){ pill='warn'; label='LOW'; }
+          }
+          return `<tr><td>${s.name}</td><td class="tag-cat">${s.category||'—'}</td><td>${fmt(s.current_stock)} ${s.unit}</td><td><span class="pill ${pill}">${label}</span></td></tr>`;
+        }).join('') : '<tr><td colspan="4" class="empty">No materials yet — add some in the Materials tab.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------
+// Production: open batches (materials can be logged daily before
+// anything is finished) + starting new batches + completing them
+// ---------------------------------------------------------------
+let productionLines = [];
+let openBatches = [];
+let activeBatchId = null; // which open batch the "add usage" form targets
+
+async function renderProduction(){
+  const main = document.getElementById('main');
+  const { data } = await supabase.from('production_runs')
+    .select('*, casket_models(name), staff:started_by(name), production_materials_used(quantity_used, materials(name, unit), staff(name), created_at)')
+    .eq('status', 'in_progress').order('started_at', {ascending:false});
+  openBatches = data || [];
+  if(productionLines.length===0) productionLines.push({material_id:'', qty:''});
+
+  main.innerHTML = `
+    <div class="card">
+      <h2>Start a New Batch</h2>
+      <p class="muted">Start this as soon as work begins — you don't need to know the finished quantity yet. Log materials against it as you go, then mark it complete when caskets are done.</p>
+      <div class="grid cols-3">
+        <div><label>Casket Model (optional)</label>
+          <select id="nbModel"><option value="">— unspecified —</option>${MODELS.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}</select>
+        </div>
+        <div><label>Started By</label>
+          <select id="nbStaff">${STAFF.map(s=>`<option value="${s.id}">${s.name}</option>`).join('') || '<option disabled>Add staff first</option>'}</select>
+        </div>
+        <div><label>Date</label><input id="nbDate" type="datetime-local" value="${new Date().toISOString().slice(0,16)}"/></div>
+      </div>
+      <label>Notes</label>
+      <textarea id="nbNotes" rows="2" placeholder="optional"></textarea>
+      <button class="btn" onclick="startBatch()">Start Batch</button>
+    </div>
+
+    <div class="card">
+      <h2>Open Batches (in progress)</h2>
+      ${openBatches.length ? openBatches.map(b=>`
+        <div style="border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-bottom:12px;">
+          <div class="flex between">
+            <div>
+              <strong>${b.casket_models?.name || 'Unspecified model'}</strong>
+              <span class="muted"> — started ${new Date(b.started_at).toLocaleDateString()} by ${b.staff?.name||'—'}</span>
+            </div>
+            <div class="flex">
+              <button class="btn secondary small" onclick="toggleBatchForm('${b.id}')">+ Log materials used today</button>
+              <button class="btn small" onclick="openCompleteBatch('${b.id}')">Mark Complete</button>
+            </div>
+          </div>
+          ${(b.production_materials_used||[]).length ? `
+            <table style="margin-top:10px;"><thead><tr><th>Date</th><th>Material</th><th>Qty</th><th>By</th></tr></thead>
+            <tbody>${b.production_materials_used.map(u=>`<tr><td>${new Date(u.created_at).toLocaleDateString()}</td><td>${u.materials?.name||'?'}</td><td>${fmt(u.quantity_used)} ${u.materials?.unit||''}</td><td>${u.staff?.name||'—'}</td></tr>`).join('')}</tbody></table>
+          ` : '<p class="muted" style="margin:8px 0 0;">No materials logged yet.</p>'}
+          <div id="batchForm_${b.id}" style="display:none; margin-top:12px;"></div>
+        </div>
+      `).join('') : '<p class="empty">No open batches. Start one above.</p>'}
+    </div>
+  `;
+}
+
+function toggleBatchForm(batchId){
+  document.querySelectorAll('[id^="batchForm_"]').forEach(el=>{ if(el.id !== 'batchForm_'+batchId) el.style.display='none'; });
+  const el = document.getElementById('batchForm_'+batchId);
+  const willShow = el.style.display === 'none';
+  el.style.display = willShow ? 'block' : 'none';
+  if(willShow){
+    activeBatchId = batchId;
+    productionLines = [{material_id:'', qty:''}];
+    drawLines(batchId);
+  }
+}
+
+function drawLines(batchId){
+  const wrap = document.getElementById('batchForm_'+batchId);
+  wrap.innerHTML = `
+    <label style="margin-top:0;">Date materials were used</label>
+    <input type="datetime-local" id="lineDate_${batchId}" value="${new Date().toISOString().slice(0,16)}"/>
+    <div id="lineRows_${batchId}" style="margin-top:8px;"></div>
+    <button class="btn secondary small" onclick="addLine('${batchId}')">+ Add material line</button>
+    <div><button class="btn small" onclick="submitUsage('${batchId}')">Save Materials Used</button></div>
+  `;
+  drawLineRows(batchId);
+}
+function drawLineRows(batchId){
+  const wrap = document.getElementById('lineRows_'+batchId);
+  wrap.innerHTML = productionLines.map((l,i)=>`
+    <div class="line-row">
+      <div><label>Material</label>
+        <select onchange="productionLines[${i}].material_id=this.value">
+          <option value="">— select —</option>
+          ${MATERIALS.map(m=>`<option value="${m.id}" ${l.material_id===m.id?'selected':''}>${m.name} (${m.unit})</option>`).join('')}
+        </select>
+      </div>
+      <div><label>Qty used</label>
+        <input type="number" min="0" step="any" value="${l.qty}" onchange="productionLines[${i}].qty=this.value"/>
+      </div>
+      <div><label>Used by</label>
+        <select onchange="productionLines[${i}].used_by=this.value">
+          <option value="">— select —</option>
+          ${STAFF.map(s=>`<option value="${s.id}" ${l.used_by===s.id?'selected':''}>${s.name}</option>`).join('')}
+        </select>
+      </div>
+      <div><button class="btn secondary small" onclick="removeLine('${batchId}', ${i})">✕</button></div>
+    </div>
+  `).join('');
+}
+function addLine(batchId){ productionLines.push({material_id:'', qty:''}); drawLineRows(batchId); }
+function removeLine(batchId, i){ productionLines.splice(i,1); if(productionLines.length===0) productionLines.push({material_id:'',qty:''}); drawLineRows(batchId); }
+
+async function startBatch(){
+  const model = document.getElementById('nbModel').value || null;
+  const staff = document.getElementById('nbStaff').value;
+  const date = document.getElementById('nbDate').value;
+  const notes = document.getElementById('nbNotes').value;
+  if(!staff){ toast('Pick who started the batch', 'err'); return; }
+
+  const { error } = await supabase.from('production_runs').insert({
+    casket_model_id: model, started_by: staff, status: 'in_progress',
+    started_at: new Date(date).toISOString(), notes
+  });
+  if(error){ toast('Error: '+error.message, 'err'); return; }
+  toast('Batch started — you can now log materials against it', 'ok');
+  render('production');
+}
+
+async function submitUsage(batchId){
+  const dateEl = document.getElementById('lineDate_'+batchId);
+  const date = dateEl ? dateEl.value : new Date().toISOString().slice(0,16);
+  const lines = productionLines.filter(l=>l.material_id && Number(l.qty) > 0);
+  if(!lines.length){ toast('Add at least one material line with a quantity', 'err'); return; }
+  const rows = lines.map(l=>({
+    production_run_id: batchId, material_id: l.material_id,
+    quantity_used: Number(l.qty), used_by: l.used_by || null,
+    created_at: new Date(date).toISOString()
+  }));
+  const { error } = await supabase.from('production_materials_used').insert(rows);
+  if(error){ toast('Error: '+error.message, 'err'); return; }
+  toast('Materials logged', 'ok');
+  productionLines = [];
+  render('production');
+}
+
+function openCompleteBatch(batchId){
+  const qty = prompt('How many caskets were completed in this batch?');
+  if(qty === null) return;
+  const n = Number(qty);
+  if(!n || n <= 0){ toast('Enter a valid quantity', 'err'); return; }
+  completeBatch(batchId, n);
+}
+async function completeBatch(batchId, qty){
+  const { error } = await supabase.from('production_runs').update({
+    status: 'completed', quantity_made: qty, completed_at: new Date().toISOString()
+  }).eq('id', batchId);
+  if(error){ toast('Error: '+error.message, 'err'); return; }
+  toast('Batch marked complete', 'ok');
+  render('production');
+}
+
+// ---------------------------------------------------------------
+// Log Shipment (adds stock)
+// ---------------------------------------------------------------
+function renderShipments(){
+  const main = document.getElementById('main');
+  main.innerHTML = `
+    <div class="card">
+      <h2>Log a New Material Shipment</h2>
+      <p class="muted">Record materials that just arrived. This increases current stock.</p>
+      <div class="grid cols-2">
+        <div><label>Material</label>
+          <select id="sMaterial">${MATERIALS.map(m=>`<option value="${m.id}">${m.name} (${m.unit})</option>`).join('') || '<option disabled>Add a material first</option>'}</select>
+        </div>
+        <div><label>Quantity Received</label><input id="sQty" type="number" min="0" step="any"/></div>
+        <div><label>Supplier</label><input id="sSupplier" placeholder="optional"/></div>
+        <div><label>Unit Cost (optional)</label><input id="sCost" type="number" min="0" step="any"/></div>
+        <div><label>Received By</label>
+          <select id="sStaff">${STAFF.map(s=>`<option value="${s.id}">${s.name}</option>`).join('') || '<option disabled>Add staff first</option>'}</select>
+        </div>
+        <div><label>Date</label><input id="sDate" type="datetime-local" value="${new Date().toISOString().slice(0,16)}"/></div>
+      </div>
+      <label>Notes</label>
+      <textarea id="sNotes" rows="2" placeholder="optional"></textarea>
+      <button class="btn" onclick="submitShipment()">Save Shipment</button>
+    </div>
+  `;
+}
+
+async function submitShipment(){
+  const material_id = document.getElementById('sMaterial').value;
+  const quantity = Number(document.getElementById('sQty').value);
+  const supplier = document.getElementById('sSupplier').value;
+  const unit_cost = document.getElementById('sCost').value ? Number(document.getElementById('sCost').value) : null;
+  const received_by = document.getElementById('sStaff').value;
+  const date = document.getElementById('sDate').value;
+  const notes = document.getElementById('sNotes').value;
+
+  if(!material_id || !quantity || !received_by){ toast('Fill in material, quantity, and received by', 'err'); return; }
+
+  const { error } = await supabase.from('material_shipments').insert({
+    material_id, quantity, supplier, unit_cost, received_by,
+    received_at: new Date(date).toISOString(), notes
+  });
+  if(error){ toast('Error: '+error.message, 'err'); return; }
+  toast('Shipment logged', 'ok');
+  render('shipments');
+}
+
+// ---------------------------------------------------------------
+// Materials management
+// ---------------------------------------------------------------
+function renderMaterials(){
+  const main = document.getElementById('main');
+  main.innerHTML = `
+    <div class="card">
+      <h2>Add Material</h2>
+      <div class="grid cols-4">
+        <div><label>Name</label><input id="mName" placeholder="e.g. Mahogany plywood"/></div>
+        <div><label>Category</label><input id="mCategory" placeholder="e.g. Wood"/></div>
+        <div><label>Unit</label><input id="mUnit" placeholder="e.g. sheets, kg, pcs"/></div>
+        <div><label>Reorder threshold</label><input id="mThreshold" type="number" min="0" step="any"/></div>
+      </div>
+      <button class="btn" onclick="submitMaterial()">Add Material</button>
+    </div>
+    <div class="card">
+      <h2>All Materials</h2>
+      <table>
+        <thead><tr><th>Name</th><th>Category</th><th>Unit</th><th>Reorder at</th><th></th></tr></thead>
+        <tbody>
+        ${MATERIALS.length ? MATERIALS.map(m=>`
+          <tr><td>${m.name}</td><td class="tag-cat">${m.category||'—'}</td><td>${m.unit}</td><td>${m.reorder_threshold?fmt(m.reorder_threshold):'—'}</td>
+          <td><button class="btn secondary small" onclick="archiveMaterial('${m.id}')">Archive</button></td></tr>
+        `).join('') : '<tr><td colspan="5" class="empty">No materials yet</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+async function submitMaterial(){
+  const name = document.getElementById('mName').value.trim();
+  const category = document.getElementById('mCategory').value.trim();
+  const unit = document.getElementById('mUnit').value.trim();
+  const reorder_threshold = document.getElementById('mThreshold').value || 0;
+  if(!name || !unit){ toast('Name and unit are required', 'err'); return; }
+  const { error } = await supabase.from('materials').insert({ name, category, unit, reorder_threshold });
+  if(error){ toast('Error: '+error.message, 'err'); return; }
+  toast('Material added', 'ok');
+  render('materials');
+}
+async function archiveMaterial(id){
+  if(!confirm('Archive this material? It will be hidden but history is kept.')) return;
+  await supabase.from('materials').update({active:false}).eq('id', id);
+  render('materials');
+}
+
+// ---------------------------------------------------------------
+// Casket models
+// ---------------------------------------------------------------
+function renderModels(){
+  const main = document.getElementById('main');
+  main.innerHTML = `
+    <div class="card">
+      <h2>Add Casket Model</h2>
+      <div class="grid cols-2">
+        <div><label>Name</label><input id="moName" placeholder="e.g. Classic Oak"/></div>
+        <div><label>Description</label><input id="moDesc" placeholder="optional"/></div>
+      </div>
+      <button class="btn" onclick="submitModel()">Add Model</button>
+    </div>
+    <div class="card">
+      <h2>All Models</h2>
+      <table><thead><tr><th>Name</th><th>Description</th><th></th></tr></thead>
+      <tbody>
+      ${MODELS.length ? MODELS.map(m=>`
+        <tr><td>${m.name}</td><td class="muted">${m.description||'—'}</td>
+        <td><button class="btn secondary small" onclick="archiveModel('${m.id}')">Archive</button></td></tr>
+      `).join('') : '<tr><td colspan="3" class="empty">No models yet</td></tr>'}
+      </tbody></table>
+    </div>
+  `;
+}
+async function submitModel(){
+  const name = document.getElementById('moName').value.trim();
+  const description = document.getElementById('moDesc').value.trim();
+  if(!name){ toast('Name is required', 'err'); return; }
+  const { error } = await supabase.from('casket_models').insert({ name, description });
+  if(error){ toast('Error: '+error.message, 'err'); return; }
+  toast('Model added', 'ok');
+  render('models');
+}
+async function archiveModel(id){
+  if(!confirm('Archive this model?')) return;
+  await supabase.from('casket_models').update({active:false}).eq('id', id);
+  render('models');
+}
+
+// ---------------------------------------------------------------
+// Staff
+// ---------------------------------------------------------------
+function renderStaff(){
+  const main = document.getElementById('main');
+  main.innerHTML = `
+    <div class="card">
+      <h2>Add Staff</h2>
+      <div class="grid cols-2">
+        <div><label>Name</label><input id="stName"/></div>
+        <div><label>Role</label><input id="stRole" placeholder="e.g. Carpenter, Finisher"/></div>
+      </div>
+      <button class="btn" onclick="submitStaff()">Add Staff</button>
+    </div>
+    <div class="card">
+      <h2>All Staff</h2>
+      <table><thead><tr><th>Name</th><th>Role</th><th></th></tr></thead>
+      <tbody>
+      ${STAFF.length ? STAFF.map(s=>`
+        <tr><td>${s.name}</td><td class="muted">${s.role||'—'}</td>
+        <td><button class="btn secondary small" onclick="archiveStaff('${s.id}')">Archive</button></td></tr>
+      `).join('') : '<tr><td colspan="3" class="empty">No staff yet</td></tr>'}
+      </tbody></table>
+    </div>
+  `;
+}
+async function submitStaff(){
+  const name = document.getElementById('stName').value.trim();
+  const role = document.getElementById('stRole').value.trim();
+  if(!name){ toast('Name is required', 'err'); return; }
+  const { error } = await supabase.from('staff').insert({ name, role });
+  if(error){ toast('Error: '+error.message, 'err'); return; }
+  toast('Staff added', 'ok');
+  render('staff');
+}
+async function archiveStaff(id){
+  if(!confirm('Archive this staff member?')) return;
+  await supabase.from('staff').update({active:false}).eq('id', id);
+  render('staff');
+}
+
+// ---------------------------------------------------------------
+// History (production + shipments combined log)
+// ---------------------------------------------------------------
+async function renderHistory(){
+  const main = document.getElementById('main');
+  const { data: runs } = await supabase.from('production_runs')
+    .select('*, casket_models(name), staff:started_by(name), production_materials_used(quantity_used, materials(name, unit), staff(name))')
+    .order('started_at', {ascending:false}).limit(50);
+  const { data: ships } = await supabase.from('material_shipments')
+    .select('*, materials(name, unit), staff(name)')
+    .order('received_at', {ascending:false}).limit(50);
+
+  main.innerHTML = `
+    <div class="card">
+      <h2>Recent Production Batches</h2>
+      <table>
+        <thead><tr><th>Started</th><th>Status</th><th>Model</th><th>Qty made</th><th>Started by</th><th>Materials used</th></tr></thead>
+        <tbody>
+        ${(runs&&runs.length) ? runs.map(r=>`
+          <tr>
+            <td>${new Date(r.started_at).toLocaleString()}</td>
+            <td><span class="pill ${r.status==='completed'?'ok':'warn'}">${r.status==='completed'?'Completed':'In progress'}</span></td>
+            <td>${r.casket_models?.name||'—'}</td>
+            <td>${r.status==='completed' ? fmt(r.quantity_made) : '—'}</td>
+            <td>${r.staff?.name||'—'}</td>
+            <td class="muted">${(r.production_materials_used||[]).map(u=>`${u.materials?.name||'?'}: ${fmt(u.quantity_used)} ${u.materials?.unit||''}${u.staff?.name?' ('+u.staff.name+')':''}`).join(', ') || '—'}</td>
+          </tr>
+        `).join('') : '<tr><td colspan="6" class="empty">No production batches yet</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Recent Shipments</h2>
+      <table>
+        <thead><tr><th>Date</th><th>Material</th><th>Qty</th><th>Supplier</th><th>Received by</th></tr></thead>
+        <tbody>
+        ${(ships&&ships.length) ? ships.map(s=>`
+          <tr>
+            <td>${new Date(s.received_at).toLocaleString()}</td>
+            <td>${s.materials?.name||'—'}</td>
+            <td>${fmt(s.quantity)} ${s.materials?.unit||''}</td>
+            <td class="muted">${s.supplier||'—'}</td>
+            <td>${s.staff?.name||'—'}</td>
+          </tr>
+        `).join('') : '<tr><td colspan="5" class="empty">No shipments yet</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+init();
+</script>
+</body>
+</html>
