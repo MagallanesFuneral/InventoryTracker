@@ -139,7 +139,7 @@
 // ---------------------------------------------------------------
 // Config / connection
 // ---------------------------------------------------------------
-let supabase = null;
+let sb = null;
 let STAFF = [], MATERIALS = [], MODELS = [], STOCK = [];
 
 function toast(msg, kind){
@@ -169,12 +169,12 @@ async function init(){
   const url = localStorage.getItem('sb_url');
   const key = localStorage.getItem('sb_key');
   if(!url || !key){ showConfig(); return; }
-  supabase = window.supabase.createClient(url, key);
+  sb = window.supabase.createClient(url, key);
   document.getElementById('configScreen').style.display='none';
   document.getElementById('app').style.display='block';
   const status = document.getElementById('connStatus');
   try{
-    const { error } = await supabase.from('materials').select('id').limit(1);
+    const { error } = await sb.from('materials').select('id').limit(1);
     if(error) throw error;
     status.textContent = 'connected'; status.className='ok';
   }catch(e){
@@ -188,10 +188,10 @@ async function init(){
 
 async function loadAll(){
   const [s, m, mo, st] = await Promise.all([
-    supabase.from('staff').select('*').eq('active', true).order('name'),
-    supabase.from('materials').select('*').eq('active', true).order('name'),
-    supabase.from('casket_models').select('*').eq('active', true).order('name'),
-    supabase.from('material_stock').select('*').order('name'),
+    sb.from('staff').select('*').eq('active', true).order('name'),
+    sb.from('materials').select('*').eq('active', true).order('name'),
+    sb.from('casket_models').select('*').eq('active', true).order('name'),
+    sb.from('material_stock').select('*').order('name'),
   ]);
   STAFF = s.data || [];
   MATERIALS = m.data || [];
@@ -231,7 +231,7 @@ async function renderDashboard(){
   const main = document.getElementById('main');
   const lowStock = STOCK.filter(s => s.reorder_threshold && Number(s.current_stock) <= Number(s.reorder_threshold));
 
-  const { data: runs } = await supabase.from('production_runs').select('quantity_made, completed_at, status');
+  const { data: runs } = await sb.from('production_runs').select('quantity_made, completed_at, status');
   const completed = (runs||[]).filter(r => r.status === 'completed');
   const totalMade = completed.reduce((a,r)=>a+Number(r.quantity_made),0);
   const last30 = completed.filter(r => r.completed_at && (Date.now() - new Date(r.completed_at).getTime()) < 30*86400000)
@@ -284,7 +284,7 @@ let activeBatchId = null; // which open batch the "add usage" form targets
 
 async function renderProduction(){
   const main = document.getElementById('main');
-  const { data } = await supabase.from('production_runs')
+  const { data } = await sb.from('production_runs')
     .select('*, casket_models(name), staff:started_by(name), production_materials_used(quantity_used, materials(name, unit), staff(name), created_at)')
     .eq('status', 'in_progress').order('started_at', {ascending:false});
   openBatches = data || [];
@@ -389,7 +389,7 @@ async function startBatch(){
   const notes = document.getElementById('nbNotes').value;
   if(!staff){ toast('Pick who started the batch', 'err'); return; }
 
-  const { error } = await supabase.from('production_runs').insert({
+  const { error } = await sb.from('production_runs').insert({
     casket_model_id: model, started_by: staff, status: 'in_progress',
     started_at: new Date(date).toISOString(), notes
   });
@@ -408,7 +408,7 @@ async function submitUsage(batchId){
     quantity_used: Number(l.qty), used_by: l.used_by || null,
     created_at: new Date(date).toISOString()
   }));
-  const { error } = await supabase.from('production_materials_used').insert(rows);
+  const { error } = await sb.from('production_materials_used').insert(rows);
   if(error){ toast('Error: '+error.message, 'err'); return; }
   toast('Materials logged', 'ok');
   productionLines = [];
@@ -423,7 +423,7 @@ function openCompleteBatch(batchId){
   completeBatch(batchId, n);
 }
 async function completeBatch(batchId, qty){
-  const { error } = await supabase.from('production_runs').update({
+  const { error } = await sb.from('production_runs').update({
     status: 'completed', quantity_made: qty, completed_at: new Date().toISOString()
   }).eq('id', batchId);
   if(error){ toast('Error: '+error.message, 'err'); return; }
@@ -470,7 +470,7 @@ async function submitShipment(){
 
   if(!material_id || !quantity || !received_by){ toast('Fill in material, quantity, and received by', 'err'); return; }
 
-  const { error } = await supabase.from('material_shipments').insert({
+  const { error } = await sb.from('material_shipments').insert({
     material_id, quantity, supplier, unit_cost, received_by,
     received_at: new Date(date).toISOString(), notes
   });
@@ -515,14 +515,14 @@ async function submitMaterial(){
   const unit = document.getElementById('mUnit').value.trim();
   const reorder_threshold = document.getElementById('mThreshold').value || 0;
   if(!name || !unit){ toast('Name and unit are required', 'err'); return; }
-  const { error } = await supabase.from('materials').insert({ name, category, unit, reorder_threshold });
+  const { error } = await sb.from('materials').insert({ name, category, unit, reorder_threshold });
   if(error){ toast('Error: '+error.message, 'err'); return; }
   toast('Material added', 'ok');
   render('materials');
 }
 async function archiveMaterial(id){
   if(!confirm('Archive this material? It will be hidden but history is kept.')) return;
-  await supabase.from('materials').update({active:false}).eq('id', id);
+  await sb.from('materials').update({active:false}).eq('id', id);
   render('materials');
 }
 
@@ -556,14 +556,14 @@ async function submitModel(){
   const name = document.getElementById('moName').value.trim();
   const description = document.getElementById('moDesc').value.trim();
   if(!name){ toast('Name is required', 'err'); return; }
-  const { error } = await supabase.from('casket_models').insert({ name, description });
+  const { error } = await sb.from('casket_models').insert({ name, description });
   if(error){ toast('Error: '+error.message, 'err'); return; }
   toast('Model added', 'ok');
   render('models');
 }
 async function archiveModel(id){
   if(!confirm('Archive this model?')) return;
-  await supabase.from('casket_models').update({active:false}).eq('id', id);
+  await sb.from('casket_models').update({active:false}).eq('id', id);
   render('models');
 }
 
@@ -597,14 +597,14 @@ async function submitStaff(){
   const name = document.getElementById('stName').value.trim();
   const role = document.getElementById('stRole').value.trim();
   if(!name){ toast('Name is required', 'err'); return; }
-  const { error } = await supabase.from('staff').insert({ name, role });
+  const { error } = await sb.from('staff').insert({ name, role });
   if(error){ toast('Error: '+error.message, 'err'); return; }
   toast('Staff added', 'ok');
   render('staff');
 }
 async function archiveStaff(id){
   if(!confirm('Archive this staff member?')) return;
-  await supabase.from('staff').update({active:false}).eq('id', id);
+  await sb.from('staff').update({active:false}).eq('id', id);
   render('staff');
 }
 
@@ -613,10 +613,10 @@ async function archiveStaff(id){
 // ---------------------------------------------------------------
 async function renderHistory(){
   const main = document.getElementById('main');
-  const { data: runs } = await supabase.from('production_runs')
+  const { data: runs } = await sb.from('production_runs')
     .select('*, casket_models(name), staff:started_by(name), production_materials_used(quantity_used, materials(name, unit), staff(name))')
     .order('started_at', {ascending:false}).limit(50);
-  const { data: ships } = await supabase.from('material_shipments')
+  const { data: ships } = await sb.from('material_shipments')
     .select('*, materials(name, unit), staff(name)')
     .order('received_at', {ascending:false}).limit(50);
 
