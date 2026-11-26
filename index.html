@@ -98,6 +98,24 @@
   .config-box{max-width:520px; margin:60px auto;}
   .subtle-link{color:var(--accent); cursor:pointer; font-size:.82rem; text-decoration:underline;}
   .tag-cat{color:var(--muted); font-size:.78rem;}
+
+  /* ---- Printable report ---- */
+  #reportTable{
+    display:none; background:#fff; color:#111; padding:16px; border-radius:8px;
+  }
+  #reportTable table{font-size:.75rem;}
+  #reportTable th, #reportTable td{border:1px solid #999; padding:4px 6px; color:#111;}
+  #reportTable th{background:#f0f0f0;}
+  #reportTable h2{color:#111; text-align:center; margin:0 0 4px;}
+  #reportTable .sub{color:#555; text-align:center; font-size:.8rem; margin-bottom:12px;}
+  .mark-cell{text-align:center; font-weight:600;}
+  @media print{
+    body *{visibility:hidden;}
+    #reportTable, #reportTable *{visibility:visible;}
+    #reportTable{display:block !important; position:absolute; top:0; left:0; width:100%; padding:0;}
+    @page{size:landscape;}
+    * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  }
 </style>
 </head>
 <body>
@@ -132,9 +150,12 @@
     <button data-tab="branches">Branches</button>
     <button data-tab="staff">Staff</button>
     <button data-tab="history">History</button>
+    <button data-tab="reports">Print Report</button>
   </nav>
   <main id="main"></main>
 </div>
+
+<div id="reportTable"></div>
 
 <script>
 // ---------------------------------------------------------------
@@ -230,6 +251,7 @@ async function render(tab){
   if(tab==='branches') return renderBranches();
   if(tab==='staff') return renderStaff();
   if(tab==='history') return renderHistory();
+  if(tab==='reports') return renderReports();
 }
 
 function fmt(n){ return Number(n).toLocaleString(undefined,{maximumFractionDigits:2}); }
@@ -755,6 +777,98 @@ async function renderHistory(){
       </table>
     </div>
   `;
+}
+
+// ---------------------------------------------------------------
+// Printable Report — mirrors the paper "Inventory of Produced Casket"
+// sheet: one column per maker (date they built it), one column per
+// branch (dispatch date, color-coded), deceased name + address.
+// ---------------------------------------------------------------
+const REPORT_COLORS = ['#e6d9f2','#f2e2c4','#d2e9f7','#d7f0da','#f7d9d9','#f9e8c2','#dde7f9'];
+
+function monthStartEnd(){
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth()+1, 0);
+  return [start.toISOString().slice(0,10), end.toISOString().slice(0,10)];
+}
+
+function renderReports(){
+  const main = document.getElementById('main');
+  const [defFrom, defTo] = monthStartEnd();
+  main.innerHTML = `
+    <div class="card">
+      <h2>Print Report</h2>
+      <p class="muted">Builds a printable sheet shaped like the paper inventory log — a column per maker, a column per branch, with the deceased's name and address. Pick a date range (based on when each casket was started) and generate.</p>
+      <div class="grid cols-3">
+        <div><label>From</label><input id="repFrom" type="date" value="${defFrom}"/></div>
+        <div><label>To</label><input id="repTo" type="date" value="${defTo}"/></div>
+        <div style="display:flex; align-items:end; gap:8px;">
+          <button class="btn" onclick="generateReport()">Generate</button>
+          <button class="btn secondary" id="printBtn" style="display:none;" onclick="window.print()">Print / Save PDF</button>
+        </div>
+      </div>
+    </div>
+    <div id="reportPreviewWrap"></div>
+  `;
+}
+
+async function generateReport(){
+  const from = document.getElementById('repFrom').value;
+  const to = document.getElementById('repTo').value;
+  if(!from || !to){ toast('Pick both dates', 'err'); return; }
+
+  const { data: units, error } = await sb.from('casket_units')
+    .select('*, maker:produced_by(name), branches(name)')
+    .gte('started_at', from)
+    .lte('started_at', to + 'T23:59:59')
+    .order('serial_no');
+  if(error){ toast('Error: '+error.message, 'err'); return; }
+
+  const rows = units || [];
+  const makers = STAFF.slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const makerColor = {}; makers.forEach((m,i)=>makerColor[m.id] = REPORT_COLORS[i % REPORT_COLORS.length]);
+  const branchColor = {}; BRANCHES.forEach((b,i)=>branchColor[b.id] = REPORT_COLORS[i % REPORT_COLORS.length]);
+
+  const html = `
+    <h2>Inventory of Produced Casket</h2>
+    <div class="sub">${new Date(from).toLocaleDateString()} – ${new Date(to).toLocaleDateString()}</div>
+    <table style="width:100%; border-collapse:collapse;">
+      <thead>
+        <tr>
+          <th rowspan="2">Serial No.</th>
+          <th colspan="${makers.length}">Maker</th>
+          <th rowspan="2">Name of Deceased</th>
+          <th rowspan="2">Address</th>
+          <th colspan="${BRANCHES.length}">Branches</th>
+        </tr>
+        <tr>
+          ${makers.map(m=>`<th style="background:${makerColor[m.id]};">${m.name}</th>`).join('')}
+          ${BRANCHES.map(b=>`<th style="background:${branchColor[b.id]};">${b.name}</th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.length ? rows.map(r=>`
+          <tr>
+            <td>${r.serial_no}</td>
+            ${makers.map(m=>`<td class="mark-cell" style="background:${r.produced_by===m.id?makerColor[m.id]:'transparent'};">${r.produced_by===m.id ? new Date(r.started_at).toLocaleDateString() : ''}</td>`).join('')}
+            <td>${r.deceased_name||''}</td>
+            <td>${r.deceased_address||''}</td>
+            ${BRANCHES.map(b=>`<td class="mark-cell" style="background:${r.branch_id===b.id?branchColor[b.id]:'transparent'};">${r.branch_id===b.id && r.dispatch_date ? new Date(r.dispatch_date).toLocaleDateString() : ''}</td>`).join('')}
+          </tr>
+        `).join('') : `<tr><td colspan="${2+makers.length+BRANCHES.length}" style="text-align:center; padding:14px;">No caskets started in this date range</td></tr>`}
+      </tbody>
+    </table>
+  `;
+
+  document.getElementById('reportTable').innerHTML = html;
+  document.getElementById('reportPreviewWrap').innerHTML = `
+    <div class="card" style="background:#fff;">
+      <div style="color:#111;">${html}</div>
+    </div>
+  `;
+  document.getElementById('printBtn').style.display = 'inline-block';
+  toast('Report generated — scroll down to preview, or click Print', 'ok');
 }
 
 init();
