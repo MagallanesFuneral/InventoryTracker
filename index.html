@@ -583,7 +583,11 @@ function renderMaterials(){
         <tbody>
         ${MATERIALS.length ? MATERIALS.map(m=>`
           <tr><td>${m.name}</td><td class="tag-cat">${m.category||'—'}</td><td>${m.reorder_threshold?fmt(m.reorder_threshold):'—'}</td>
-          <td><button class="btn secondary small" onclick="archiveMaterial('${m.id}')">Archive</button></td></tr>
+          <td class="flex">
+            <button class="btn secondary small" onclick="editMaterial('${m.id}')">Edit</button>
+            <button class="btn secondary small" onclick="deleteMaterial('${m.id}')">Delete</button>
+            <button class="btn secondary small" onclick="archiveMaterial('${m.id}')">Archive</button>
+          </td></tr>
         `).join('') : '<tr><td colspan="4" class="empty">No materials yet</td></tr>'}
         </tbody>
       </table>
@@ -600,6 +604,37 @@ async function submitMaterial(){
   const { error } = await sb.from('materials').insert({ name, category, unit: 'PCS', reorder_threshold });
   if(error){ toast('Error: '+error.message, 'err'); return; }
   toast('Material added', 'ok');
+  render('materials');
+}
+function editMaterial(id){
+  const m = MATERIALS.find(x=>x.id===id);
+  if(!m) return;
+  const name = prompt('Name:', m.name);
+  if(name === null) return;
+  if(!name.trim()){ toast('Name is required', 'err'); return; }
+  const category = prompt('Category:', m.category||'');
+  if(category === null) return;
+  const threshold = prompt('Reorder threshold:', m.reorder_threshold||0);
+  if(threshold === null) return;
+  updateMaterial(id, name.trim(), category.trim(), Number(threshold)||0);
+}
+async function updateMaterial(id, name, category, reorder_threshold){
+  const dup = MATERIALS.find(m => m.id!==id && m.name.toLowerCase()===name.toLowerCase());
+  if(dup){ toast(`"${dup.name}" already exists under that name`, 'err'); return; }
+  const { error } = await sb.from('materials').update({ name, category, reorder_threshold }).eq('id', id);
+  if(error){ toast('Error: '+error.message, 'err'); return; }
+  toast('Material updated', 'ok');
+  render('materials');
+}
+async function deleteMaterial(id){
+  const m = MATERIALS.find(x=>x.id===id);
+  if(!confirm(`Permanently delete "${m?.name}"? This only works if it has no shipments or usage logged against it yet — otherwise use Archive instead.`)) return;
+  const { error } = await sb.from('materials').delete().eq('id', id);
+  if(error){
+    toast('Can\'t delete — this material already has shipments or usage logged against it. Use Archive instead to hide it while keeping its history.', 'err');
+    return;
+  }
+  toast('Material deleted', 'ok');
   render('materials');
 }
 async function archiveMaterial(id){
