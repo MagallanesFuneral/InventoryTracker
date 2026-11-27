@@ -164,8 +164,8 @@
 // Fill these in with your Supabase project's own URL and anon public key
 // (Project Settings -> API) so the app connects automatically for everyone,
 // on any device or browser, with no "Connect to Supabase" prompt.
-const DEFAULT_SUPABASE_URL = "";   // e.g. "https://xxxxxxxxxxxx.supabase.co"
-const DEFAULT_SUPABASE_KEY = "";   // e.g. "eyJhbGciOi..."
+const DEFAULT_SUPABASE_URL = "https://wfimsnbzopshshahdqke.supabase.co";
+const DEFAULT_SUPABASE_KEY = "sb_publishable_ifzT3whOJV2cS5UnBf6mGQ_jB1tyI2x";
 
 let sb = null;
 let STAFF = [], MATERIALS = [], MODELS = [], STOCK = [], BRANCHES = [];
@@ -497,11 +497,12 @@ function openShip(unitId){
   if(!branch){ toast('Invalid choice', 'err'); return; }
   const dateStr = prompt('Dispatch date (YYYY-MM-DD):', new Date().toISOString().slice(0,10));
   if(dateStr === null) return;
-  shipCasket(unitId, branch.id, dateStr);
+  const crate = prompt('Crate label (optional):', '') || '';
+  shipCasket(unitId, branch.id, dateStr, crate);
 }
-async function shipCasket(unitId, branchId, dateStr){
+async function shipCasket(unitId, branchId, dateStr, crate){
   const { error } = await sb.from('casket_units').update({
-    status: 'shipped', branch_id: branchId, dispatch_date: dateStr
+    status: 'shipped', branch_id: branchId, dispatch_date: dateStr, crate_label: crate
   }).eq('id', unitId);
   if(error){ toast('Error: '+error.message, 'err'); return; }
   toast('Casket marked shipped', 'ok');
@@ -827,36 +828,44 @@ async function generateReport(){
 
   const rows = units || [];
   const makers = STAFF.slice().sort((a,b)=>a.name.localeCompare(b.name));
-  const makerColor = {}; makers.forEach((m,i)=>makerColor[m.id] = REPORT_COLORS[i % REPORT_COLORS.length]);
-  const branchColor = {}; BRANCHES.forEach((b,i)=>branchColor[b.id] = REPORT_COLORS[i % REPORT_COLORS.length]);
+  const totalCols = 1 + makers.length + 2 + 1 + BRANCHES.length + 1; // Serial + makers + Deceased/Address + Date + branches + Crate
+  const monthLabel = new Date(from + 'T00:00:00').toLocaleDateString(undefined, {month:'long', year:'numeric'});
 
   const html = `
     <h2>Inventory of Produced Casket</h2>
-    <div class="sub">${new Date(from).toLocaleDateString()} – ${new Date(to).toLocaleDateString()}</div>
     <table style="width:100%; border-collapse:collapse;">
       <thead>
         <tr>
-          <th rowspan="2">Serial No.</th>
-          <th colspan="${makers.length}">Maker</th>
-          <th rowspan="2">Name of Deceased</th>
-          <th rowspan="2">Address</th>
-          <th colspan="${BRANCHES.length}">Branches</th>
+          <th style="text-align:left;">Date:</th>
+          <th colspan="${makers.length}" style="text-align:left;">Month of ${monthLabel}</th>
+          <th></th>
+          <th></th>
+          <th></th>
+          <th colspan="${BRANCHES.length}" style="background:#f5e642;">Branches</th>
+          <th></th>
         </tr>
         <tr>
-          ${makers.map(m=>`<th style="background:${makerColor[m.id]};">${m.name}</th>`).join('')}
-          ${BRANCHES.map(b=>`<th style="background:${branchColor[b.id]};">${b.name}</th>`).join('')}
+          <th>Serial No.</th>
+          ${makers.map(m=>`<th>${m.name}</th>`).join('')}
+          <th>Name of Deceased</th>
+          <th>Address</th>
+          <th>Date</th>
+          ${BRANCHES.map(b=>`<th>${b.name}</th>`).join('')}
+          <th>Crate</th>
         </tr>
       </thead>
       <tbody>
         ${rows.length ? rows.map(r=>`
           <tr>
             <td>${r.serial_no}</td>
-            ${makers.map(m=>`<td class="mark-cell" style="background:${r.produced_by===m.id?makerColor[m.id]:'transparent'};">${r.produced_by===m.id ? new Date(r.started_at).toLocaleDateString() : ''}</td>`).join('')}
+            ${makers.map(m=>`<td class="mark-cell">${r.produced_by===m.id ? new Date(r.started_at).toLocaleDateString() : ''}</td>`).join('')}
             <td>${r.deceased_name||''}</td>
             <td>${r.deceased_address||''}</td>
-            ${BRANCHES.map(b=>`<td class="mark-cell" style="background:${r.branch_id===b.id?branchColor[b.id]:'transparent'};">${r.branch_id===b.id && r.dispatch_date ? new Date(r.dispatch_date).toLocaleDateString() : ''}</td>`).join('')}
+            <td class="mark-cell">${r.produced_at ? new Date(r.produced_at).toLocaleDateString() : ''}</td>
+            ${BRANCHES.map(b=>`<td class="mark-cell">${r.branch_id===b.id && r.dispatch_date ? new Date(r.dispatch_date).toLocaleDateString() : ''}</td>`).join('')}
+            <td>${r.crate_label||''}</td>
           </tr>
-        `).join('') : `<tr><td colspan="${2+makers.length+BRANCHES.length}" style="text-align:center; padding:14px;">No caskets started in this date range</td></tr>`}
+        `).join('') : `<tr><td colspan="${totalCols}" style="text-align:center; padding:14px;">No caskets started in this date range</td></tr>`}
       </tbody>
     </table>
   `;
