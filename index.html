@@ -569,10 +569,11 @@ function renderMaterials(){
     <div class="card">
       <h2>Add Material</h2>
       <p class="muted">Materials are counted in pieces (PCS). To add stock for a material that already exists, use the Log Shipment tab instead — it adds onto the existing total rather than creating a second entry.</p>
-      <div class="grid cols-3">
+      <div class="grid cols-4">
         <div><label>Name</label><input id="mName" placeholder="e.g. Mahogany plywood"/></div>
         <div><label>Category</label><input id="mCategory" placeholder="e.g. Wood"/></div>
         <div><label>Reorder threshold</label><input id="mThreshold" type="number" min="0" step="any"/></div>
+        <div><label>Starting Quantity (optional)</label><input id="mInitQty" type="number" min="0" step="any" placeholder="0"/></div>
       </div>
       <button class="btn" onclick="submitMaterial()">Add Material</button>
     </div>
@@ -598,11 +599,18 @@ async function submitMaterial(){
   const name = document.getElementById('mName').value.trim();
   const category = document.getElementById('mCategory').value.trim();
   const reorder_threshold = document.getElementById('mThreshold').value || 0;
+  const initQty = Number(document.getElementById('mInitQty').value) || 0;
   if(!name){ toast('Name is required', 'err'); return; }
   const dup = MATERIALS.find(m => m.name.toLowerCase() === name.toLowerCase());
   if(dup){ toast(`"${dup.name}" already exists — use Log Shipment to add stock to it instead`, 'err'); return; }
-  const { error } = await sb.from('materials').insert({ name, category, unit: 'PCS', reorder_threshold });
+  const { data: mat, error } = await sb.from('materials').insert({ name, category, unit: 'PCS', reorder_threshold }).select().single();
   if(error){ toast('Error: '+error.message, 'err'); return; }
+  if(initQty > 0){
+    const { error: shipErr } = await sb.from('material_shipments').insert({
+      material_id: mat.id, quantity: initQty, supplier: 'Initial stock entry'
+    });
+    if(shipErr){ toast('Material added, but starting quantity failed: '+shipErr.message, 'err'); render('materials'); return; }
+  }
   toast('Material added', 'ok');
   render('materials');
 }
