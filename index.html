@@ -144,6 +144,7 @@
   <nav id="tabs">
     <button data-tab="dashboard" class="active">Dashboard</button>
     <button data-tab="caskets">Caskets</button>
+    <button data-tab="materialsused">Materials Used</button>
     <button data-tab="shipments">Log Shipment</button>
     <button data-tab="materials">Materials</button>
     <button data-tab="models">Casket Models</button>
@@ -245,6 +246,7 @@ async function render(tab){
   await loadAll();
   if(tab==='dashboard') return renderDashboard();
   if(tab==='caskets') return renderCaskets();
+  if(tab==='materialsused') return renderMaterialsUsed();
   if(tab==='shipments') return renderShipments();
   if(tab==='materials') return renderMaterials();
   if(tab==='models') return renderModels();
@@ -268,7 +270,7 @@ async function renderDashboard(){
   const totalMade = all.filter(u => u.status !== 'in_progress').length;
   const last30 = all.filter(u => u.produced_at && (Date.now() - new Date(u.produced_at).getTime()) < 30*86400000).length;
   const openCount = all.filter(u => u.status === 'in_progress').length;
-  const inStockCount = all.filter(u => u.status === 'in_stock').length;
+  const inStockCount = all.filter(u => u.status === 'completed').length;
 
   main.innerHTML = `
     <div class="grid cols-4">
@@ -277,7 +279,7 @@ async function renderDashboard(){
       <div class="stat"><div class="label">Total caskets completed</div><div class="value">${fmt(totalMade)}</div></div>
       <div class="stat"><div class="label">Completed (last 30 days)</div><div class="value">${fmt(last30)}</div></div>
       <div class="stat"><div class="label">In progress</div><div class="value">${openCount}</div></div>
-      <div class="stat"><div class="label">Ready in stock</div><div class="value">${inStockCount}</div></div>
+      <div class="stat"><div class="label">Completed, not yet assigned</div><div class="value">${inStockCount}</div></div>
     </div>
 
     ${lowStock.length ? `
@@ -309,27 +311,25 @@ async function renderDashboard(){
 
 // ---------------------------------------------------------------
 // Caskets — each one tracked by serial number through its whole life:
-//   in_progress -> in_stock -> assigned (to a deceased/case) -> shipped (to a branch)
-// Materials can be logged against a casket at any point, even while
-// it's still in_progress and no product is finished yet.
+//   in_progress -> completed -> assigned (to a deceased/case) -> shipped (to a branch)
+// Material usage is logged separately in the Materials Used tab, not here —
+// this tab just tracks the casket's own progress.
 // ---------------------------------------------------------------
-let productionLines = [];
 let openCaskets = [];
-const STATUS_LABEL = { in_progress:'In Progress', in_stock:'In Stock', assigned:'Assigned', shipped:'Shipped' };
-const STATUS_PILL = { in_progress:'warn', in_stock:'ok', assigned:'ok', shipped:'ok' };
+const STATUS_LABEL = { in_progress:'In Progress', completed:'Completed', assigned:'Assigned', shipped:'Shipped' };
+const STATUS_PILL = { in_progress:'warn', completed:'ok', assigned:'ok', shipped:'ok' };
 
 async function renderCaskets(){
   const main = document.getElementById('main');
   const { data } = await sb.from('casket_units')
-    .select('*, casket_models(name), maker:produced_by(name), branches(name), casket_materials_used(quantity_used, materials(name, unit), staff(name), created_at)')
+    .select('*, casket_models(name), maker:produced_by(name), branches(name)')
     .neq('status', 'shipped').order('started_at', {ascending:false});
   openCaskets = data || [];
-  if(productionLines.length===0) productionLines.push({material_id:'', qty:''});
 
   main.innerHTML = `
     <div class="card">
       <h2>Start a New Casket</h2>
-      <p class="muted">Give it a serial number as soon as work begins — you don't need a finished product yet. Log materials against it as you go, then move it through to Ready, Assigned, and Shipped as it progresses.</p>
+      <p class="muted">Give it a serial number as soon as work begins. Materials used while building it are logged separately in the Materials Used tab — just reference this same serial number there. Once it's done, mark it Completed below.</p>
       <div class="grid cols-4">
         <div><label>Serial No.</label><input id="nbSerial" placeholder="e.g. C-092726-7"/></div>
         <div><label>Casket Model (optional)</label>
@@ -347,82 +347,31 @@ async function renderCaskets(){
 
     <div class="card">
       <h2>Active Caskets (not yet shipped)</h2>
-      ${openCaskets.length ? openCaskets.map(b=>`
-        <div style="border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-bottom:12px;">
-          <div class="flex between">
-            <div>
-              <strong>${b.serial_no}</strong>
-              <span class="pill ${STATUS_PILL[b.status]}" style="margin-left:8px;">${STATUS_LABEL[b.status]}</span>
-              <div class="muted" style="margin-top:4px;">
-                ${b.casket_models?.name || 'Unspecified model'} — started ${new Date(b.started_at).toLocaleDateString()} by ${b.maker?.name||'—'}
-                ${b.deceased_name ? `<br>For: ${b.deceased_name}${b.deceased_address?' — '+b.deceased_address:''}` : ''}
-              </div>
-            </div>
-            <div class="flex">
-              <button class="btn secondary small" onclick="toggleBatchForm('${b.id}')">+ Log materials used</button>
-              ${b.status==='in_progress' ? `<button class="btn small" onclick="markReady('${b.id}')">Mark Ready (In Stock)</button>` : ''}
-              ${b.status==='in_stock' ? `<button class="btn small" onclick="openAssign('${b.id}')">Assign to Case</button>` : ''}
+      ${openCaskets.length ? `
+      <table>
+        <thead><tr><th>Serial No.</th><th>Status</th><th>Model</th><th>Maker</th><th>Started</th><th>For</th><th></th></tr></thead>
+        <tbody>
+        ${openCaskets.map(b=>`
+          <tr>
+            <td><strong>${b.serial_no}</strong></td>
+            <td><span class="pill ${STATUS_PILL[b.status]}">${STATUS_LABEL[b.status]}</span></td>
+            <td>${b.casket_models?.name || '—'}</td>
+            <td>${b.maker?.name||'—'}</td>
+            <td>${new Date(b.started_at).toLocaleDateString()}</td>
+            <td class="muted">${b.deceased_name ? `${b.deceased_name}${b.deceased_address?' — '+b.deceased_address:''}` : '—'}</td>
+            <td>
+              ${b.status==='in_progress' ? `<button class="btn small" onclick="markCompleted('${b.id}')">Mark Completed</button>` : ''}
+              ${b.status==='completed' ? `<button class="btn small" onclick="openAssign('${b.id}')">Assign to Case</button>` : ''}
               ${b.status==='assigned' ? `<button class="btn small" onclick="openShip('${b.id}')">Ship to Branch</button>` : ''}
-            </div>
-          </div>
-          ${(b.casket_materials_used||[]).length ? `
-            <table style="margin-top:10px;"><thead><tr><th>Date</th><th>Material</th><th>Qty</th><th>By</th></tr></thead>
-            <tbody>${b.casket_materials_used.map(u=>`<tr><td>${new Date(u.created_at).toLocaleDateString()}</td><td>${u.materials?.name||'?'}</td><td>${fmt(u.quantity_used)} ${u.materials?.unit||''}</td><td>${u.staff?.name||'—'}</td></tr>`).join('')}</tbody></table>
-          ` : '<p class="muted" style="margin:8px 0 0;">No materials logged yet.</p>'}
-          <div id="batchForm_${b.id}" style="display:none; margin-top:12px;"></div>
-        </div>
-      `).join('') : '<p class="empty">No active caskets. Start one above.</p>'}
+            </td>
+          </tr>
+        `).join('')}
+        </tbody>
+      </table>
+      ` : '<p class="empty">No active caskets. Start one above.</p>'}
     </div>
   `;
 }
-
-function toggleBatchForm(unitId){
-  document.querySelectorAll('[id^="batchForm_"]').forEach(el=>{ if(el.id !== 'batchForm_'+unitId) el.style.display='none'; });
-  const el = document.getElementById('batchForm_'+unitId);
-  const willShow = el.style.display === 'none';
-  el.style.display = willShow ? 'block' : 'none';
-  if(willShow){
-    productionLines = [{material_id:'', qty:''}];
-    drawLines(unitId);
-  }
-}
-
-function drawLines(unitId){
-  const wrap = document.getElementById('batchForm_'+unitId);
-  wrap.innerHTML = `
-    <label style="margin-top:0;">Date materials were used</label>
-    <input type="datetime-local" id="lineDate_${unitId}" value="${new Date().toISOString().slice(0,16)}"/>
-    <div id="lineRows_${unitId}" style="margin-top:8px;"></div>
-    <button class="btn secondary small" onclick="addLine('${unitId}')">+ Add material line</button>
-    <div><button class="btn small" onclick="submitUsage('${unitId}')">Save Materials Used</button></div>
-  `;
-  drawLineRows(unitId);
-}
-function drawLineRows(unitId){
-  const wrap = document.getElementById('lineRows_'+unitId);
-  wrap.innerHTML = productionLines.map((l,i)=>`
-    <div class="line-row">
-      <div><label>Material</label>
-        <select onchange="productionLines[${i}].material_id=this.value">
-          <option value="">— select —</option>
-          ${MATERIALS.map(m=>`<option value="${m.id}" ${l.material_id===m.id?'selected':''}>${m.name} (${m.unit})</option>`).join('')}
-        </select>
-      </div>
-      <div><label>Qty used</label>
-        <input type="number" min="0" step="any" value="${l.qty}" onchange="productionLines[${i}].qty=this.value"/>
-      </div>
-      <div><label>Used by</label>
-        <select onchange="productionLines[${i}].used_by=this.value">
-          <option value="">— select —</option>
-          ${STAFF.map(s=>`<option value="${s.id}" ${l.used_by===s.id?'selected':''}>${s.name}</option>`).join('')}
-        </select>
-      </div>
-      <div><button class="btn secondary small" onclick="removeLine('${unitId}', ${i})">✕</button></div>
-    </div>
-  `).join('');
-}
-function addLine(unitId){ productionLines.push({material_id:'', qty:''}); drawLineRows(unitId); }
-function removeLine(unitId, i){ productionLines.splice(i,1); if(productionLines.length===0) productionLines.push({material_id:'',qty:''}); drawLineRows(unitId); }
 
 async function startCasket(){
   const serial_no = document.getElementById('nbSerial').value.trim();
@@ -442,33 +391,16 @@ async function startCasket(){
     else toast('Error: '+error.message, 'err');
     return;
   }
-  toast('Casket started — you can now log materials against it', 'ok');
+  toast('Casket started', 'ok');
   render('caskets');
 }
 
-async function submitUsage(unitId){
-  const dateEl = document.getElementById('lineDate_'+unitId);
-  const date = dateEl ? dateEl.value : new Date().toISOString().slice(0,16);
-  const lines = productionLines.filter(l=>l.material_id && Number(l.qty) > 0);
-  if(!lines.length){ toast('Add at least one material line with a quantity', 'err'); return; }
-  const rows = lines.map(l=>({
-    casket_id: unitId, material_id: l.material_id,
-    quantity_used: Number(l.qty), used_by: l.used_by || null,
-    created_at: new Date(date).toISOString()
-  }));
-  const { error } = await sb.from('casket_materials_used').insert(rows);
-  if(error){ toast('Error: '+error.message, 'err'); return; }
-  toast('Materials logged', 'ok');
-  productionLines = [];
-  render('caskets');
-}
-
-async function markReady(unitId){
+async function markCompleted(unitId){
   const { error } = await sb.from('casket_units').update({
-    status: 'in_stock', produced_at: new Date().toISOString()
+    status: 'completed', produced_at: new Date().toISOString()
   }).eq('id', unitId);
   if(error){ toast('Error: '+error.message, 'err'); return; }
-  toast('Casket marked ready / in stock', 'ok');
+  toast('Casket marked completed', 'ok');
   render('caskets');
 }
 
@@ -507,6 +439,77 @@ async function shipCasket(unitId, branchId, dateStr, crate){
   if(error){ toast('Error: '+error.message, 'err'); return; }
   toast('Casket marked shipped', 'ok');
   render('caskets');
+}
+
+// ---------------------------------------------------------------
+// Materials Used — standalone daily log. Anyone pulling materials from
+// inventory logs it here directly, optionally noting which casket serial
+// number it's for (free text — doesn't require that casket to exist yet).
+// This is what actually deducts from current stock.
+// ---------------------------------------------------------------
+async function renderMaterialsUsed(){
+  const main = document.getElementById('main');
+  const { data } = await sb.from('casket_materials_used')
+    .select('*, materials(name, unit), staff(name)')
+    .order('created_at', {ascending:false}).limit(100);
+  const log = data || [];
+
+  main.innerHTML = `
+    <div class="card">
+      <h2>Log Materials Used</h2>
+      <p class="muted">Record materials pulled from inventory on any given day. This is what updates the stock counts on the Dashboard.</p>
+      <div class="grid cols-4">
+        <div><label>Date</label><input id="muDate" type="datetime-local" value="${new Date().toISOString().slice(0,16)}"/></div>
+        <div><label>Material</label>
+          <select id="muMaterial">${MATERIALS.map(m=>`<option value="${m.id}">${m.name} (${m.unit})</option>`).join('') || '<option disabled>Add a material first</option>'}</select>
+        </div>
+        <div><label>Quantity Used</label><input id="muQty" type="number" min="0" step="any"/></div>
+        <div><label>Used By</label>
+          <select id="muStaff"><option value="">— select —</option>${STAFF.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</select>
+        </div>
+      </div>
+      <label>Casket Serial No. (optional)</label>
+      <input id="muSerial" placeholder="e.g. C-092726-7 — leave blank if not for a specific casket"/>
+      <button class="btn" onclick="submitStandaloneUsage()">Save</button>
+    </div>
+
+    <div class="card">
+      <h2>Recent Materials Used</h2>
+      <table>
+        <thead><tr><th>Date</th><th>Material</th><th>Qty</th><th>Used By</th><th>Casket Serial</th></tr></thead>
+        <tbody>
+        ${log.length ? log.map(u=>`
+          <tr>
+            <td>${new Date(u.created_at).toLocaleString()}</td>
+            <td>${u.materials?.name||'?'}</td>
+            <td>${fmt(u.quantity_used)} ${u.materials?.unit||''}</td>
+            <td>${u.staff?.name||'—'}</td>
+            <td class="muted">${u.serial_no||'—'}</td>
+          </tr>
+        `).join('') : '<tr><td colspan="5" class="empty">No materials logged yet</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function submitStandaloneUsage(){
+  const date = document.getElementById('muDate').value;
+  const material_id = document.getElementById('muMaterial').value;
+  const qty = Number(document.getElementById('muQty').value);
+  const used_by = document.getElementById('muStaff').value || null;
+  const serial_no = document.getElementById('muSerial').value.trim() || null;
+
+  if(!material_id){ toast('Pick a material', 'err'); return; }
+  if(!qty || qty <= 0){ toast('Enter a valid quantity', 'err'); return; }
+
+  const { error } = await sb.from('casket_materials_used').insert({
+    material_id, quantity_used: qty, used_by, serial_no,
+    created_at: new Date(date).toISOString()
+  });
+  if(error){ toast('Error: '+error.message, 'err'); return; }
+  toast('Materials logged', 'ok');
+  render('materialsused');
 }
 
 // ---------------------------------------------------------------
@@ -731,7 +734,7 @@ async function archiveBranch(id){
 async function renderHistory(){
   const main = document.getElementById('main');
   const { data: units } = await sb.from('casket_units')
-    .select('*, casket_models(name), maker:produced_by(name), branches(name), casket_materials_used(quantity_used, materials(name, unit))')
+    .select('*, casket_models(name), maker:produced_by(name), branches(name)')
     .order('started_at', {ascending:false}).limit(100);
   const { data: ships } = await sb.from('material_shipments')
     .select('*, materials(name, unit), staff(name)')
