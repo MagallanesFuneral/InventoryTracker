@@ -482,7 +482,7 @@ async function renderMaterialsUsed(){
           <tr>
             <td>${new Date(u.created_at).toLocaleString()}</td>
             <td>${u.materials?.name||'?'}</td>
-            <td>${fmt(u.quantity_used)} ${u.materials?.unit||''}</td>
+            <td>${fmt(u.quantity_used)}</td>
             <td>${u.staff?.name||'—'}</td>
             <td class="muted">${u.serial_no||'—'}</td>
           </tr>
